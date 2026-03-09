@@ -1,5 +1,5 @@
-<h1 align="center">Jellyfin</h1>
-<h3 align="center">The Free Software Media System</h3>
+<h1 align="center">JellyFinhanced</h1>
+<h3 align="center">Jellyfin — Enhanced with MySQL Support and Performance Improvements</h3>
 
 ---
 
@@ -11,187 +11,398 @@
 <img alt="GPL 2.0 License" src="https://img.shields.io/github/license/jellyfin/jellyfin.svg"/>
 </a>
 <a href="https://github.com/jellyfin/jellyfin/releases">
-<img alt="Current Release" src="https://img.shields.io/github/release/jellyfin/jellyfin.svg"/>
-</a>
-<a href="https://translate.jellyfin.org/projects/jellyfin/jellyfin-core/?utm_source=widget">
-<img alt="Translation Status" src="https://translate.jellyfin.org/widgets/jellyfin/-/jellyfin-core/svg-badge.svg"/>
-</a>
-<a href="https://hub.docker.com/r/jellyfin/jellyfin">
-<img alt="Docker Pull Count" src="https://img.shields.io/docker/pulls/jellyfin/jellyfin.svg"/>
-</a>
-<br/>
-<a href="https://opencollective.com/jellyfin">
-<img alt="Donate" src="https://img.shields.io/opencollective/all/jellyfin.svg?label=backers"/>
-</a>
-<a href="https://features.jellyfin.org">
-<img alt="Submit Feature Requests" src="https://img.shields.io/badge/fider-vote%20on%20features-success.svg"/>
-</a>
-<a href="https://matrix.to/#/#jellyfinorg:matrix.org">
-<img alt="Chat on Matrix" src="https://img.shields.io/matrix/jellyfinorg:matrix.org.svg?logo=matrix"/>
-</a>
-<a href="https://github.com/jellyfin/jellyfin/releases.atom">
-<img alt="Release RSS Feed" src="https://img.shields.io/badge/rss-releases-ffa500?logo=rss" />
-</a>
-<a href="https://github.com/jellyfin/jellyfin/commits/master.atom">
-<img alt="Master Commits RSS Feed" src="https://img.shields.io/badge/rss-commits-ffa500?logo=rss" />
+<img alt="Based on Jellyfin" src="https://img.shields.io/badge/based%20on-jellyfin%2010.12.0-blue.svg"/>
 </a>
 </p>
 
 ---
 
-Jellyfin is a Free Software Media System that puts you in control of managing and streaming your media. It is an alternative to the proprietary Emby and Plex, to provide media from a dedicated server to end-user devices via multiple apps. Jellyfin is descended from Emby's 3.5.2 release and ported to the .NET platform to enable full cross-platform support.
-
-There are no strings attached, no premium licenses or features, and no hidden agendas: just a team that wants to build something better and work together to achieve it. We welcome anyone who is interested in joining us in our quest!
-
-For further details, please see [our documentation page](https://jellyfin.org/docs/). To receive the latest updates, get help with Jellyfin, and join the community, please visit [one of our communication channels](https://jellyfin.org/docs/general/getting-help). For more information about the project, please see our [about page](https://jellyfin.org/docs/general/about).
-
-<strong>Want to get started?</strong><br/>
-Check out our <a href="https://jellyfin.org/downloads">downloads page</a> or our <a href="https://jellyfin.org/docs/general/installation/">installation guide</a>, then see our <a href="https://jellyfin.org/docs/general/quick-start">quick start guide</a>. You can also <a href="https://jellyfin.org/docs/general/installation/source">build from source</a>.<br/>
-
-<strong>Something not working right?</strong><br/>
-Open an <a href="https://jellyfin.org/docs/general/contributing/issues">Issue</a> on GitHub.<br/>
-
-<strong>Want to contribute?</strong><br/>
-Check out our <a href="https://jellyfin.org/contribute">contributing choose-your-own-adventure</a> to see where you can help, then see our <a href="https://jellyfin.org/docs/general/contributing/">contributing guide</a> and our <a href="https://jellyfin.org/docs/general/community-standards">community standards</a>.<br/>
-
-<strong>New idea or improvement?</strong><br/>
-Check out our <a href="https://features.jellyfin.org/?view=most-wanted">feature request hub</a>.<br/>
-
-<strong>Don't see Jellyfin in your language?</strong><br/>
-Check out our <a href="https://translate.jellyfin.org">Weblate instance</a> to help translate Jellyfin and its subprojects.<br/>
-
-<a href="https://translate.jellyfin.org/engage/jellyfin/?utm_source=widget">
-<img src="https://translate.jellyfin.org/widgets/jellyfin/-/jellyfin-web/multi-auto.svg" alt="Detailed Translation Status"/>
-</a>
+JellyFinhanced is a fork of [Jellyfin](https://github.com/jellyfin/jellyfin) — the free, open-source media server — extended with a MySQL/MariaDB database backend and a suite of parallelism and async performance improvements targeting high-concurrency deployments and large media libraries.
 
 ---
 
-## Jellyfin Server
+## What's Changed
 
-This repository contains the code for Jellyfin's backend server. Note that this is only one of many projects under the Jellyfin GitHub [organization](https://github.com/jellyfin/) on GitHub. If you want to contribute, you can start by checking out our [documentation](https://jellyfin.org/docs/general/contributing/index.html) to see what to work on.
+### MySQL Database Backend
 
-## Server Development
+The default Jellyfin installation uses SQLite, which limits write concurrency and becomes a bottleneck on large libraries. JellyFinhanced adds a full **MySQL/MariaDB provider** built on [Pomelo.EntityFrameworkCore.MySql](https://github.com/PomeloFoundation/Pomelo.EntityFrameworkCore.MySql), switchable via a single configuration file with no code changes required.
 
-These instructions will help you get set up with a local development environment in order to contribute to this repository. Before you start, please be sure to completely read our [guidelines on development contributions](https://jellyfin.org/docs/general/contributing/development.html). Note that this project is supported on all major operating systems except FreeBSD, which is still incompatible.
+- EF Core migrations manage the full schema lifecycle
+- Connection string and individual option formats both supported
+- `utf8mb4` character set enforced for full Unicode compatibility
+- Configurable locking behavior (`NoLock`, `Pessimistic`, `Optimistic`)
+- Automatic schema migrations applied on startup
+- Backup/restore workflow documented below
+
+### Performance Improvements
+
+Eight targeted parallelism improvements were implemented across the core media server pipeline. All parallel paths use explicit concurrency caps, `Interlocked` counters, and independent EF Core contexts per branch to prevent thread pool saturation and connection pool exhaustion.
+
+#### HIGH Impact
+
+| Area | Before | After | Estimated Gain |
+|---|---|---|---|
+| **People validation** (`PeopleValidator`) | Sequential per-person metadata refresh | `Parallel.ForEachAsync` capped at `min(CPU, 4)` | ~3.5x faster — 50-min task → ~14 min on large libraries |
+| **Image downloads** (`LibraryManager`) | Sequential HTTP fetch per image type | `Task.WhenAll` + `SemaphoreSlim(4)` gate; CPU work (dimension/blurhash) stays serial | ~4x faster per-item image update |
+| **Guide refresh** (`GuideManager`) | One channel at a time — 100 channels × 100ms = 10s serial | `Channel<T>` producer-consumer: 8-way parallel fetches, single serial DB writer | ~3.5x faster guide refresh (15s → ~4s) |
+| **Live TV channel listing** (`LiveTvManager`) | `.GetAwaiter().GetResult()` on every channel-list request — thread pool starvation under load | `async Task AddChannelInfoAsync` propagated through `ILiveTvManager` and `DtoService` | Eliminates a blocked thread per concurrent TV guide request |
+
+#### MEDIUM Impact
+
+| Area | Before | After | Estimated Gain |
+|---|---|---|---|
+| **Remote metadata search** (`ProviderManager`) | TMDB, TVDB, MusicBrainz queried sequentially | `Task.WhenAll` fan-out; serial dedup after | ~4x lower search latency (4 providers × 300ms → 300ms) |
+| **DTO construction** (`DtoService`) | 50-100 items built sequentially per browse page | `Task.WhenAll` + `SemaphoreSlim(4)` for non-IBN types; IBN path stays serial | 2-3x faster page load for I/O-heavy DTO fields |
+| **Library root refresh** (`LibraryManager`) | Each top-level collection folder refreshed one at a time at startup | `Task.WhenAll` + `SemaphoreSlim(4)` | ~8x faster startup step (4s → ~0.5s) |
+| **Metadata savers** (`ProviderManager`) | NFO, image, and XML savers run sequentially | `Task.WhenAll`; `DateLastSaved` set once after all complete | ~3x faster metadata write path |
+
+#### Parallelism Prerequisites Applied Consistently
+
+- All `Parallel.ForEachAsync` calls include explicit `MaxDegreeOfParallelism` + `CancellationToken`
+- Counters in parallel loops use `Interlocked.Increment`
+- Each parallel branch that touches the database uses its own `IDbContextFactory<T>.CreateDbContextAsync()` context
+- `SemaphoreSlim` gates all `Task.WhenAll` paths accessing I/O or DB connections
+
+### Extended Test Coverage
+
+Additional unit and integration tests covering:
+
+- `CleanDatabaseScheduledTask` — dead-item cleanup, progress reporting, cancellation
+- `BaseItemRepository` — extended query and data integrity tests
+- `SessionManager` — extended session lifecycle tests
+- API controllers — `InstantMixController`, `LibraryController`, `MoviesController`, `PlaylistsController`, `SuggestionsController`, `TvShowsController`, `UserLibraryController`
+- Integration tests — `ApiKeyController`, `ConfigurationController`, `DevicesController`, `FilterController`, `ImageController`, `SessionController`, `SystemController`, and others
+- E2E and regression test suites
+
+---
+
+## MySQL Database Configuration
+
+### 1. Create the MySQL Database and User
+
+Connect to MySQL as root:
+
+```bash
+sudo mysql
+```
+
+```sql
+CREATE DATABASE jellyfin CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'jellyfin'@'localhost' IDENTIFIED BY 'your_secure_password';
+GRANT ALL PRIVILEGES ON jellyfin.* TO 'jellyfin'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+For a remote MySQL server, replace `'localhost'` with the Jellyfin server's IP address or `'%'` for any host.
+
+### 2. Create `database.json`
+
+Jellyfin reads database configuration from `database.json` in the configuration directory.
+
+**Default config directory locations:**
+
+| Condition | Path |
+|---|---|
+| `--configdir` CLI flag | Value of the flag |
+| `$JELLYFIN_CONFIG_DIR` | Value of the variable |
+| `--datadir` / `$JELLYFIN_DATA_DIR` set | `{datadir}/config` |
+| Default (no XDG config) | `~/.local/share/jellyfin/config` |
+| Default (XDG config exists) | `~/.config/jellyfin` |
+
+Create the config directory and `database.json`:
+
+```bash
+mkdir -p ~/.local/share/jellyfin/config
+
+cat > ~/.local/share/jellyfin/config/database.json << 'EOF'
+{
+  "DatabaseType": "Jellyfin-MySQL",
+  "LockingBehavior": "NoLock",
+  "CustomProviderOptions": {
+    "ConnectionString": "Server=localhost;Port=3306;Database=jellyfin;User=jellyfin;Password=your_secure_password;SslMode=Preferred;CharSet=utf8mb4;"
+  }
+}
+EOF
+```
+
+Replace `your_secure_password` with the password set in step 1.
+
+### Connection String Options
+
+| Option | Default | Description |
+|---|---|---|
+| `Server` | `localhost` | MySQL hostname or IP |
+| `Port` | `3306` | MySQL port |
+| `Database` | `jellyfin` | Database name |
+| `User` | `jellyfin` | MySQL username |
+| `Password` | *(empty)* | MySQL password |
+| `SslMode` | `Preferred` | `None`, `Preferred`, or `Required` |
+| `CharSet` | `utf8mb4` | Must be `utf8mb4` |
+
+### Locking Behavior
+
+| Value | Description |
+|---|---|
+| `NoLock` | No extra concurrency control — recommended for MySQL |
+| `Pessimistic` | Database-level row locking |
+| `Optimistic` | Row-version conflict detection |
+
+---
+
+## Deploying with MySQL
 
 ### Prerequisites
 
-Before the project can be built, you must first install the [.NET 9.0 SDK](https://dotnet.microsoft.com/download/dotnet) on your system.
+- **.NET 10 SDK**
+- **MySQL 8.x or MariaDB 10.6+**
+- **FFmpeg** (for transcoding)
 
-Instructions to run this project from the command line are included here, but you will also need to install an IDE if you want to debug the server while it is running. Any IDE that supports .NET 6 development will work, but two options are recent versions of [Visual Studio](https://visualstudio.microsoft.com/downloads/) (at least 2022) and [Visual Studio Code](https://code.visualstudio.com/Download).
-
-[ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg) will also need to be installed.
-
-### Cloning the Repository
-
-After dependencies have been installed you will need to clone a local copy of this repository. If you just want to run the server from source you can clone this repository directly, but if you are intending to contribute code changes to the project, you should [set up your own fork](https://jellyfin.org/docs/general/contributing/development.html#set-up-your-copy-of-the-repo) of the repository. The following example shows how you can clone the repository directly over HTTPS.
+#### Install .NET 10
 
 ```bash
-git clone https://github.com/jellyfin/jellyfin.git
+wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
+chmod +x dotnet-install.sh
+./dotnet-install.sh --channel 10.0
+
+# Add to ~/.bashrc for persistence
+export DOTNET_ROOT=$HOME/.dotnet
+export PATH=$PATH:$DOTNET_ROOT:$DOTNET_ROOT/tools
 ```
 
-### Installing the Web Client
-
-The server is configured to host the static files required for the [web client](https://github.com/jellyfin/jellyfin-web) in addition to serving the backend by default. Before you can run the server, you will need to get a copy of the web client since they are not included in this repository directly.
-
-Note that it is also possible to [host the web client separately](#hosting-the-web-client-separately) from the web server with some additional configuration, in which case you can skip this step.
-
-There are three options to get the files for the web client.
-
-1. Download one of the finished builds from the [Azure DevOps pipeline](https://dev.azure.com/jellyfin-project/jellyfin/_build?definitionId=27). You can download the build for a specific release by looking at the [branches tab](https://dev.azure.com/jellyfin-project/jellyfin/_build?definitionId=27&_a=summary&repositoryFilter=6&view=branches) of the pipelines page.
-2. Build them from source following the instructions on the [jellyfin-web repository](https://github.com/jellyfin/jellyfin-web)
-3. Get the pre-built files from an existing installation of the server. For example, with a Windows server installation the client files are located at `C:\Program Files\Jellyfin\Server\jellyfin-web`
-
-### Running The Server
-
-The following instructions will help you get the project up and running via the command line, or your preferred IDE.
-
-#### Running With Visual Studio
-
-To run the project with Visual Studio you can open the Solution (`.sln`) file and then press `F5` to run the server.
-
-#### Running With Visual Studio Code
-
-To run the project with Visual Studio Code you will first need to open the repository directory with Visual Studio Code using the `Open Folder...` option.
-
-Second, you need to [install the recommended extensions for the workspace](https://code.visualstudio.com/docs/editor/extension-gallery#_recommended-extensions). Note that extension recommendations are classified as either "Workspace Recommendations" or "Other Recommendations", but only the "Workspace Recommendations" are required.
-
-After the required extensions are installed, you can run the server by pressing `F5`.
-
-#### Running From the Command Line
-
-To run the server from the command line you can use the `dotnet run` command. The example below shows how to do this if you have cloned the repository into a directory named `jellyfin` (the default directory name) and should work on all operating systems.
+#### Install MySQL (Ubuntu/Debian)
 
 ```bash
-cd jellyfin                          # Move into the repository directory
-dotnet run --project Jellyfin.Server --webdir /absolute/path/to/jellyfin-web/dist # Run the server startup project
+sudo apt update
+sudo apt install -y mysql-server
+sudo systemctl enable --now mysql
 ```
 
-A second option is to build the project and then run the resulting executable file directly. When running the executable directly you can easily add command line options. Add the `--help` flag to list details on all the supported command line options.
-
-1. Build the project
+Or MariaDB as a drop-in replacement:
 
 ```bash
-dotnet build                       # Build the project
-cd Jellyfin.Server/bin/Debug/net10.0 # Change into the build output directory
+sudo apt install -y mariadb-server
+sudo systemctl enable --now mariadb
 ```
 
-2. Execute the build output. On Linux, Mac, etc. use `./jellyfin` and on Windows use `jellyfin.exe`.
+#### Install FFmpeg
 
-#### Accessing the Hosted Web Client
+```bash
+sudo apt install -y ffmpeg
+```
 
-If the Server is configured to host the Web Client, and the Server is running, the Web Client can be accessed at `http://localhost:8096` by default.
+### Build from Source
 
-API documentation can be viewed at `http://localhost:8096/api-docs/swagger/index.html`
+```bash
+git clone https://github.com/bkowens/JellyFinhanced.git
+cd JellyFinhanced
+dotnet build Jellyfin.sln -c Release
+```
 
+The server binary is output to `Jellyfin.Server/bin/Release/net10.0/`.
 
-### Running from GitHub Codespaces
+### Build the Web Client
 
-As Jellyfin will run on a container on a GitHub hosted server, JF needs to handle some things differently.
+```bash
+cd jellyfin-web
+npm install
+npm run build
+# Output is at jellyfin-web/dist/
+```
 
-**NOTE:** Depending on the selected configuration (if you just click 'create codespace' it will create a default configuration one) it might take 20-30 seconds to load all extensions and prepare the environment while VS Code is already open. Just give it some time and wait until you see `Downloading .NET version(s) 7.0.15~x64 ...... Done!` in the output tab.
+### Configure MySQL
 
-**NOTE:** If you want to access the JF instance from outside, like with a WebClient on another PC, remember to set the "ports" in the lower VS Code window to public.
+Follow the [MySQL Database Configuration](#mysql-database-configuration) steps above.
 
-**NOTE:** When first opening the server instance with any WebUI, you will be sent to the login instead of the setup page. Refresh the login page once and you should be redirected to the Setup.
+### Run the Server
 
-There are two configurations for you to choose from.
-#### Default - Development Jellyfin Server
-This creates a container that has everything to run and debug the Jellyfin Media server but does not setup anything else. Each time you create a new container you have to run through the whole setup again. There is also no ffmpeg, webclient or media preloaded. Use the `.NET Launch (nowebclient)` launch config to start the server.
+#### Development
 
-> Keep in mind that as this has no web client you have to connect to it via an external client. This can be just another codespace container running the WebUI. vuejs does not work from the get-go as it does not support the setup steps.
+```bash
+dotnet run --project Jellyfin.Server -- \
+  --webdir /absolute/path/to/JellyFinhanced/jellyfin-web/dist
+```
 
-#### Development Jellyfin Server ffmpeg
-this extends the default server with a default installation of ffmpeg6 though the means described here: https://jellyfin.org/docs/general/installation/linux#repository-manual
-If you want to install a specific ffmpeg version, follow the comments embedded in the `.devcontainer/Dev - Server Ffmpeg/install.ffmpeg.sh` file.
+#### Production (compiled binary)
 
-Use the `ghcs .NET Launch (nowebclient, ffmpeg)` launch config to run with the jellyfin-ffmpeg enabled.
+```bash
+dotnet Jellyfin.Server/bin/Release/net10.0/jellyfin.dll \
+  --datadir /srv/jellyfin/data \
+  --configdir /etc/jellyfin \
+  --cachedir /var/cache/jellyfin \
+  --webdir /srv/jellyfin/web/dist
+```
 
+Place `database.json` at `/etc/jellyfin/database.json` when using `--configdir /etc/jellyfin`.
 
-### Running The Tests
+#### Environment Variables (alternative to CLI flags)
 
-This repository also includes unit tests that are used to validate functionality as part of a CI pipeline on Azure. There are several ways to run these tests.
+```bash
+export JELLYFIN_DATA_DIR=/srv/jellyfin/data
+export JELLYFIN_CONFIG_DIR=/etc/jellyfin
+export JELLYFIN_CACHE_DIR=/var/cache/jellyfin
+export JELLYFIN_LOG_DIR=/var/log/jellyfin
 
-1. Run tests from the command line using `dotnet test`
-2. Run tests in Visual Studio using the [Test Explorer](https://docs.microsoft.com/en-us/visualstudio/test/run-unit-tests-with-test-explorer)
-3. Run individual tests in Visual Studio Code using the associated [CodeLens annotation](https://github.com/OmniSharp/omnisharp-vscode/wiki/How-to-run-and-debug-unit-tests)
+dotnet Jellyfin.Server/bin/Release/net10.0/jellyfin.dll \
+  --webdir /srv/jellyfin/web/dist
+```
 
-### Advanced Configuration
+### Running as a systemd Service
 
-The following sections describe some more advanced scenarios for running the server from source that build upon the standard instructions above.
+Create `/etc/systemd/system/jellyfin.service`:
 
-#### Hosting The Web Client Separately
+```ini
+[Unit]
+Description=JellyFinhanced Media Server
+After=network.target mysql.service
+Requires=mysql.service
 
-It is not necessary to host the frontend web client as part of the backend server. Hosting these two components separately may be useful for frontend developers who would prefer to host the client in a separate webpack development server for a tighter development loop. See the [jellyfin-web](https://github.com/jellyfin/jellyfin-web#getting-started) repo for instructions on how to do this.
+[Service]
+Type=simple
+User=jellyfin
+Group=jellyfin
+Environment=JELLYFIN_DATA_DIR=/var/lib/jellyfin
+Environment=JELLYFIN_CONFIG_DIR=/etc/jellyfin
+Environment=JELLYFIN_CACHE_DIR=/var/cache/jellyfin
+Environment=JELLYFIN_LOG_DIR=/var/log/jellyfin
+ExecStart=/usr/bin/dotnet /opt/jellyfin/jellyfin.dll \
+  --webdir /opt/jellyfin/web/dist
+Restart=on-failure
+RestartSec=5
 
-To instruct the server not to host the web content, there is a `nowebclient` configuration flag that must be set. This can be specified using the command line
-switch `--nowebclient` or the environment variable `JELLYFIN_NOWEBCONTENT=true`.
+[Install]
+WantedBy=multi-user.target
+```
 
-Since this is a common scenario, there is also a separate launch profile defined for Visual Studio called `Jellyfin.Server (nowebcontent)` that can be selected from the 'Start Debugging' dropdown in the main toolbar.
+Create the service user and directories:
 
-**NOTE:** The setup wizard cannot be run if the web client is hosted separately.
+```bash
+sudo useradd --system --no-create-home --shell /sbin/nologin jellyfin
+sudo mkdir -p /var/lib/jellyfin /etc/jellyfin /var/cache/jellyfin /var/log/jellyfin
+sudo chown -R jellyfin:jellyfin /var/lib/jellyfin /etc/jellyfin /var/cache/jellyfin /var/log/jellyfin
+```
+
+Place `database.json` at `/etc/jellyfin/database.json`, then enable and start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now jellyfin
+sudo systemctl status jellyfin
+```
+
+### Verify the Deployment
+
+On first start, Jellyfin applies EF Core migrations to create the MySQL schema. Check logs:
+
+```bash
+sudo journalctl -u jellyfin -f
+```
+
+Look for:
+
+```
+MySQL connection string: Server=localhost;Port=3306;Database=jellyfin;...
+```
+
+Verify tables were created:
+
+```bash
+mysql -u jellyfin -p jellyfin -e "SHOW TABLES;"
+```
+
+Access the setup wizard at `http://localhost:8096`.
+
+### Backup and Restore
+
+**Manual backup:**
+
+```bash
+mysqldump -u jellyfin -p jellyfin > jellyfin_backup_$(date +%Y%m%d).sql
+```
+
+**Restore:**
+
+```bash
+mysql -u jellyfin -p jellyfin < jellyfin_backup_20260308.sql
+```
+
+Automatic migration-safety backups are written to `{DataPath}/MySqlBackups/{timestamp}/` as JSON files per table.
+
+### Troubleshooting
+
+**Connection refused:**
+```bash
+sudo systemctl status mysql
+mysql -u jellyfin -p -e "SELECT 1;"
+```
+
+**Access denied:**
+```bash
+sudo mysql -e "SHOW GRANTS FOR 'jellyfin'@'localhost';"
+```
+
+**Character set errors** — ensure the database was created with `utf8mb4`:
+```bash
+sudo mysql -e "SELECT DEFAULT_CHARACTER_SET_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='jellyfin';"
+```
 
 ---
+
+## Running the Tests
+
+```bash
+dotnet test Jellyfin.sln
+```
+
+To exclude the two known pre-existing network resolution failures:
+
+```bash
+dotnet test Jellyfin.sln --filter "FullyQualifiedName!~ParseNetworkTests"
+```
+
+---
+
+## Development Setup
+
+### Prerequisites
+
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet)
+- [FFmpeg](https://ffmpeg.org/)
+- MySQL 8.x or MariaDB 10.6+ (for MySQL backend)
+
+### Clone and Build
+
+```bash
+git clone https://github.com/bkowens/JellyFinhanced.git
+cd JellyFinhanced
+dotnet build Jellyfin.sln
+```
+
+### Run from the Command Line
+
+```bash
+dotnet run --project Jellyfin.Server -- \
+  --webdir /absolute/path/to/jellyfin-web/dist
+```
+
+Default port is `18096`. Access the server at `http://localhost:18096`.
+
+API documentation: `http://localhost:18096/api-docs/swagger/index.html`
+
+### IDE
+
+Any IDE with .NET 10 support works. Visual Studio 2022+ and VS Code (with the C# extension) are recommended. Press `F5` to run with the debugger attached.
+
+---
+
+## Upstream
+
+JellyFinhanced is based on [Jellyfin](https://github.com/jellyfin/jellyfin) 10.12.0. Jellyfin is free software released under the [GNU GPL v2](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html).
+
+For upstream documentation, issue tracking, and community support, see [jellyfin.org](https://jellyfin.org).
+
+---
+
 <p align="center">
 This project is supported by:
 <br/>
